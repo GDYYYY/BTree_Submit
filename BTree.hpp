@@ -31,8 +31,8 @@ namespace sjtu {
         constexpr static off_t BGSIZE = sizeof(Block_Head);
         constexpr static off_t Keysize = sizeof(Key);
         constexpr static off_t Valsize = sizeof(Value);
-        constexpr static off_t M = (BLOCKSIZE - BGSIZE) / sizeof(Node) - 1;
-        constexpr static off_t L = (BLOCKSIZE - BGSIZE) / (Keysize + Valsize) - 1;
+        constexpr static off_t M = (BLOCKSIZE - BGSIZE) / sizeof(Node);
+        constexpr static off_t L = (BLOCKSIZE - BGSIZE) / (Keysize + Valsize);
         
         class Filehead {
         public:
@@ -657,6 +657,17 @@ namespace sjtu {
                 return ans;
             }
 
+	    Value getValue() const {
+                if (now_pos >= block_info._size)
+                    throw invalid_iterator();
+
+                char buff[BLOCKSIZE] = { 0 };
+                Read(buff, BLOCKSIZE, block_info._pos);
+                Leaf_Data leaf_data;
+                memcpy(&leaf_data, buff + BGSIZE, sizeof(leaf_data));
+                return leaf_data.val[now_pos].second;
+            }
+
             bool operator==(const iterator& rhs) const {
 
                 // Todo operator ==
@@ -954,7 +965,7 @@ namespace sjtu {
                 if (value_pos >= info._size || leaf_data.val[value_pos].first > key) { //插在此结点前
 
                     if (info._size >= L) {
-                        off_t now_key = split_leaf_node(now_pos, info, leaf_data);
+                        Key now_key = split_leaf_node(now_pos, info, leaf_data);
                         if (key > now_key) {
                             now_pos = info._next;
                             value_pos -= info._size;
@@ -1325,4 +1336,5 @@ namespace sjtu {
     template <typename Key, typename Value, typename Compare> FILE* BTree<Key, Value, Compare>::file = nullptr;
 
 }  // namespace sjtu
+
 
