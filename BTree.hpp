@@ -31,17 +31,18 @@ namespace sjtu {
         constexpr static off_t BGSIZE = sizeof(Block_Head);
         constexpr static off_t Keysize = sizeof(Key);
         constexpr static off_t Valsize = sizeof(Value);
-        constexpr static off_t M = (BLOCKSIZE - BGSIZE) / sizeof(Node);
+        constexpr static off_t M = (BLOCKSIZE - BGSIZE) / sizeof(Node)-1;
         constexpr static off_t L = (BLOCKSIZE - BGSIZE) / (Keysize + Valsize);
-        
+
         class Filehead {
         public:
             off_t block_cnt = 1;
             off_t root = 0;
             off_t head = 0;
             off_t rear = 0;
-           off_t _size = 0;
-        };
+            off_t _size = 0;
+        };//文件头
+
         class DATA {
         public:
             Node val[M];
@@ -60,14 +61,14 @@ namespace sjtu {
         static void Read(T buff, off_t buff_size, off_t pos) {
             fseek(file, long(buff_size * pos), SEEK_SET);
             fread(buff, buff_size, 1, file);
-        }
+        }//读取外存pos处的一个块
 
         template <class T>
         static void Write(T buff, off_t buff_size, off_t pos) {
             fseek(file, long(buff_size * pos), SEEK_SET);
             fwrite(buff, buff_size, 1, file);
             fflush(file);
-        }
+        }//读入内存
 
         template <class DATA_TYPE>
         static void write_block(Block_Head* _info, DATA_TYPE* _data, off_t _pos) {
@@ -75,7 +76,7 @@ namespace sjtu {
             memcpy(buff, _info, sizeof(Block_Head));
             memcpy(buff + BGSIZE, _data, sizeof(DATA_TYPE));
             Write(buff, BLOCKSIZE, _pos);
-        }
+        }//将内存中的块写入外存
 
         template <class DATA_TYPE>
         static void read_block(Block_Head* _info, DATA_TYPE* _data, off_t _pos) {
@@ -90,15 +91,15 @@ namespace sjtu {
             fseek(file, 0, SEEK_SET);
             memcpy(buff, &bpt, sizeof(bpt));
             Write(buff, BLOCKSIZE, 0);
-        }
+        }//更新树的头信息块写入外存
 
         off_t newmemory() {
+            char buff[BLOCKSIZE] = { 0 };
+            Write(buff, BLOCKSIZE, bpt.block_cnt);
             ++bpt.block_cnt;
             update_bpt();
-            char buff[BLOCKSIZE] = { 0 };
-            Write(buff, BLOCKSIZE, bpt.block_cnt - 1);
-            return bpt.block_cnt - 1;
-        }
+            return bpt.block_cnt-1;
+        }//外存中扩大新的块内存，返回新块的位置
 
         off_t newnode(off_t _parent) {
             auto node_pos = newmemory();
@@ -110,8 +111,8 @@ namespace sjtu {
             temp._size = 0;
             write_block(&temp, &data, node_pos);
             return node_pos;
-        }
-        
+        }//在_parent下创建新的索引儿子节点
+
         off_t newleafnode(off_t _parent, off_t _last, off_t _next) {
             auto node_pos = newmemory();
             Block_Head temp;
@@ -124,7 +125,7 @@ namespace sjtu {
             temp._size = 0;
             write_block(&temp, &leaf_data, node_pos);
             return node_pos;
-        }
+        }//新的叶子节点
 
         void insert_new_index(Block_Head& parent_info, DATA& parent_data, off_t origin, off_t new_pos, const Key& new_index) {
 
@@ -133,11 +134,11 @@ namespace sjtu {
             for (p = parent_info._size - 2; parent_data.val[p]._son != origin; --p) {
                 parent_data.val[p + 1] = parent_data.val[p];
             }
-            
+
             parent_data.val[p + 1]._key = parent_data.val[p]._key;
             parent_data.val[p]._key = new_index;
             parent_data.val[p + 1]._son = new_pos;
-        }
+        }//分裂叶子节点时往origin对应的地址处插入新索引
 
         Key split_leaf_node(off_t pos, Block_Head& origin_info, Leaf_Data& origin_data) {
             off_t parent_pos;
@@ -154,20 +155,19 @@ namespace sjtu {
                 ++parent_info._size;
                 parent_data.val[0]._son = pos;
                 parent_pos = root;
-            }
+            }//如果是根节点分裂，则再准备一个根节点
 
             else {
                 read_block(&parent_info, &parent_data, origin_info._parent);
                 parent_pos = parent_info._pos;
-            }
+            }//否则取出其父节点
 
             if (check_parent(origin_info)) {
                 parent_pos = origin_info._parent;
                 read_block(&parent_info, &parent_data, parent_pos);
-            }
+            }//若父节点满则处理父节点并更新
 
             off_t new_pos = newleafnode(parent_pos,pos,origin_info._next);
-
             off_t temp_pos = origin_info._next;
             Block_Head temp_info;
             Leaf_Data temp_data;
@@ -175,7 +175,7 @@ namespace sjtu {
             read_block(&temp_info, &temp_data, temp_pos);
             temp_info._last = new_pos;
             write_block(&temp_info, &temp_data, temp_pos);
-            origin_info._next = new_pos;
+            origin_info._next = new_pos;//更新插入后前后叶子节点的last，next
 
             Block_Head new_info;
             Leaf_Data new_data;
@@ -198,8 +198,9 @@ namespace sjtu {
             write_block(&parent_info, &parent_data, parent_pos);
 
             return new_data.val[0].first;
-        }
+        }//返回分裂至后一块的那个点的值
 
+        //检查该儿子的父节点有没有满，满了则分裂，没满return false
         bool check_parent(Block_Head& son_info) {
 
             off_t parent_pos, origin_pos = son_info._parent;
@@ -222,7 +223,7 @@ namespace sjtu {
                 ++parent_info._size;
                 parent_data.val[0]._son = origin_pos;
                 parent_pos = root;
-            }
+            }//根满了新建根
 
             else {
                 read_block(&parent_info, &parent_data, origin_info._parent);
@@ -242,8 +243,8 @@ namespace sjtu {
 
             off_t mid_pos = origin_info._size >> 1;
             for (off_t p = mid_pos + 1, i = 0; p < origin_info._size; ++p,++i) {
-                if (origin_data.val[p]._son == son_info._pos) 
-                    son_info._parent = new_pos;
+                if (origin_data.val[p]._son == son_info._pos)
+                    son_info._parent = new_pos;//更新父节点
 
                 std::swap(new_data.val[i], origin_data.val[p]);
                 ++new_info._size;
@@ -259,6 +260,7 @@ namespace sjtu {
             return true;
         }
 
+        //删除的时候修正借儿子之后的索引
         void change_index(off_t l_parent, off_t l_son, const Key& new_key) {
 
             Block_Head parent_info;
@@ -309,6 +311,7 @@ namespace sjtu {
                 return;
             }
 
+            //获取兄弟
             Block_Head parent_info, brother_info;
             DATA parent_data, brother_data;
             read_block(&parent_info, &parent_data, info._parent);
@@ -321,9 +324,9 @@ namespace sjtu {
                 read_block(&brother_info, &brother_data, parent_data.val[value_pos - 1]._son);
                 brother_info._parent = info._parent;
                 if (brother_info._size > M / 2) {
-                    for (off_t p = info._size; p > 0; --p) 
+                    for (off_t p = info._size; p > 0; --p)
                         data.val[p] = data.val[p - 1];
-                    
+
                     data.val[0]._son = brother_data.val[brother_info._size - 1]._son;
                     data.val[0]._key = parent_data.val[value_pos - 1]._key;
                     parent_data.val[value_pos - 1]._key = brother_data.val[brother_info._size - 2]._key;
@@ -657,7 +660,7 @@ namespace sjtu {
                 return ans;
             }
 
-	    Value getValue() const {
+            Value getValue() const {
                 if (now_pos >= block_info._size)
                     throw invalid_iterator();
 
@@ -899,13 +902,12 @@ namespace sjtu {
                 Leaf_Data temp_data;
                 read_block(&temp_info, &temp_data, bpt.head);
                 temp_info._next = root;
-
                 write_block(&temp_info, &temp_data, bpt.head);
                 read_block(&temp_info, &temp_data, bpt.rear);
                 temp_info._last = root;
-                write_block(&temp_info, &temp_data, bpt.rear);
-                read_block(&temp_info, &temp_data, root);
+                write_block(&temp_info, &temp_data, bpt.rear);//更新头尾节点
 
+                read_block(&temp_info, &temp_data, root);
                 ++temp_info._size;
                 temp_data.val[0].first = key;
                 temp_data.val[0].second = value;
@@ -949,7 +951,7 @@ namespace sjtu {
 
                 now_parent = now_pos;
                 now_pos = data.val[son_pos]._son;
-                now_pos = now_pos;
+
             }
 
             Block_Head info;
@@ -1039,7 +1041,7 @@ namespace sjtu {
                 }
                 now_parent = now_pos;
                 now_pos = data.val[son_pos]._son;
-            }
+            }//找到元素
 
             Block_Head info;
             memcpy(&info, buff, sizeof(info));
